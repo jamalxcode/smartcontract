@@ -19,9 +19,9 @@ The USDT contract is structured as a pipeline where state mutations occur sequen
 
 ```
 [ 1. Input Dock ] ──▶ [ 2. Checkpoint Scanner ] ──▶ [ 3. Toll Booth ] ──▶ [ 4. Master Ledger ] ──▶ [ 5. Delivery Dock ]
-  (msg.sender,          (payload size,                (fee = value*bps/     (SafeMath sub/add;      (emit Transfer;
-   _to, _value)          !paused,                      10000, capped at      fee credited to         no return value)
-                         !isBlackListed[sender])       maximumFee; 0 now)    owner)
+  (msg.sender,          (!paused,                     (payload size;        (SafeMath sub/add;      (emit Transfer;
+   _to, _value)          !isBlackListed[sender])       fee = value*bps/      fee credited to         no return value)
+                                                       10000, capped; 0)     owner)
                               │                                                   │
                               ├──▶ (deprecated) Forward to upgradedAddress        └──▶ (balance too low) SafeMath throws
                               ▼ (check fails)
@@ -31,11 +31,11 @@ The USDT contract is structured as a pipeline where state mutations occur sequen
 1. **Stage 1: Input Dock (Ingestion)**  
    Receives `transfer(_to, _value)`, `transferFrom(_from, _to, _value)` or `approve(_spender, _value)` along with `msg.sender`.
 2. **Stage 2: Checkpoint Scanner (Guards)**  
-   - `onlyPayloadSize(n * 32)`: rejects calldata shorter than expected (short-address attack fix).
    - `whenNotPaused` → `require(!paused)`: blocks transfers while the owner has paused the contract. `approve` is not pause-gated.
    - `require(!isBlackListed[msg.sender])` in `transfer`, `require(!isBlackListed[_from])` in `transferFrom`. **Only the sender is checked**; a blacklisted address can still receive tokens.
    - **Deprecation is a fork, not a guard:** if `deprecated` is true, the call is forwarded to `UpgradedStandardToken(upgradedAddress).transferByLegacy(...)` (or `transferFromByLegacy` / `approveByLegacy`) and the legacy ledger is never touched.
 3. **Stage 3: Toll Booth (Fee Deduction)**  
+   First, `BasicToken.transfer`'s `onlyPayloadSize(2 * 32)` rejects calldata shorter than expected (short-address attack fix). Then:
    $$\text{fee} = \min\left(\left\lfloor\frac{\text{value} \times \text{basisPointsRate}}{10000}\right\rfloor, \text{maximumFee}\right)$$
    Both `basisPointsRate` and `maximumFee` are currently 0. `setParams` hardcodes ceilings: `newBasisPoints < 20` (under 0.2%) and `newMaxFee < 50` whole tokens.
 4. **Stage 4: Master Ledger (Storage Mutation)**  
@@ -69,10 +69,23 @@ The USDT contract is structured as a pipeline where state mutations occur sequen
 
 ## Interactive Visual Simulator
 
-The repository includes a standalone interactive HTML/SVG visualization ([`index.html`](index.html)) demonstrating:
-- Step-by-step transaction tracing across the 5-stage pipeline, with the matching Solidity line for each stage.
-- Toggles for the pause barrier, the sender blacklist and deprecation, plus a fee setting within the `setParams` ceilings.
-- Simulated transfers, reverts, upgrade forwarding, `issue`, `redeem` and `destroyBlackFunds`, with a running event log.
+The repository includes a standalone interactive HTML/SVG visualization, **The USDT Bureau** ([`index.html`](index.html)). Each pipeline stage is a clerk at a desk, and the transfer request is a paper form carried from desk to desk:
+
+| Clerk | Stage | What they do |
+|---|---|---|
+| 📋 Ada, Intake | 1. Input Dock | Reads the request and converts the amount to 6-decimal base units |
+| 🔍 Brandt, Inspector | 2. Checkpoint | `whenNotPaused`, sender blacklist, deprecation (sends the form to the New Office) |
+| 🧮 Pell, Fee Collector | 3. Toll Booth | `onlyPayloadSize`, fee calculation and the `maximumFee` cap |
+| 📖 Mora, Bookkeeper | 4. Master Ledger | SafeMath subtract and add in `balances`, fee to the owner (the "Director") |
+| 📯 Tobin, Town Crier | 5. Delivery Dock | Emits `Transfer`; returns nothing |
+
+Rejected forms go to **the Shredder** (revert). The simulator features:
+- Slow-motion playback, one check per step, with a speed setting, Pause and single-Step.
+- Each clerk explains their check in plain words, with the matching Solidity line highlighted alongside.
+- The Director's orders: pause, deprecate, `setParams` within its ceilings, `issue`, `redeem`, blacklist and `destroyBlackFunds`.
+- A live balance book and a public notice board of events.
+
+The checks run in the same order as the code. `onlyPayloadSize` sits on `BasicToken.transfer`, so it runs after the pause, blacklist and deprecation checks, at the start of stage 3.
 
 It is a model for learning, not a connection to the chain; no wallet or network access is involved.
 
