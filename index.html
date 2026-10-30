@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>USDT Pipeline Simulator</title>
+<meta name="description" content="Step-by-step model of the Tether USD (USDT) transfer pipeline, based on the verified mainnet source.">
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #1b1f24;
+    --muted: #5f6b78;
+    --line: #d8dde3;
+    --accent: #1a7f64;
+    --accent-soft: #d9f0e8;
+    --warn: #b4540a;
+    --warn-soft: #fbe8d6;
+    --bad: #c0352b;
+    --bad-soft: #f9dcd9;
+    --fwd: #3b5bdb;
+    --fwd-soft: #dfe5fb;
+    --code-bg: #f0f2f5;
+    --station: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1216;
+      --panel: #171b21;
+      --ink: #e6e9ed;
+      --muted: #96a1ad;
+      --line: #2b323b;
+      --accent: #3fc79f;
+      --accent-soft: #143329;
+      --warn: #f0a050;
+      --warn-soft: #3a2614;
+      --bad: #f06a5f;
+      --bad-soft: #3b1a18;
+      --fwd: #7d97ff;
+      --fwd-soft: #1c2447;
+      --code-bg: #1e242c;
+      --station: #1f252d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1216;
+    --panel: #171b21;
+    --ink: #e6e9ed;
+    --muted: #96a1ad;
+    --line: #2b323b;
+    --accent: #3fc79f;
+    --accent-soft: #143329;
+    --warn: #f0a050;
+    --warn-soft: #3a2614;
+    --bad: #f06a5f;
+    --bad-soft: #3b1a18;
+    --fwd: #7d97ff;
+    --fwd-soft: #1c2447;
+    --code-bg: #1e242c;
+    --station: #1f252d;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  header h1 { margin: 0 0 4px; font-size: 1.5rem; }
+  header p { margin: 0; color: var(--muted); }
+  header a { color: var(--accent); }
+  code, pre { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.85rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .panel h2 { margin: 0 0 12px; font-size: 1rem; }
+  .grid { display: grid; gap: 16px; margin-top: 16px; }
+  .grid.top { grid-template-columns: 1.3fr 1fr; }
+  .grid.bottom { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 800px) {
+    .grid.top, .grid.bottom { grid-template-columns: 1fr; }
+  }
+
+  /* Pipeline */
+  .pipeline svg { width: 100%; height: auto; display: block; }
+  .station rect { fill: var(--station); stroke: var(--line); stroke-width: 2; transition: fill .25s, stroke .25s; }
+  .station text { fill: var(--ink); font-size: 15px; text-anchor: middle; }
+  .station text.sub { fill: var(--muted); font-size: 12px; }
+  .station.active rect { stroke: var(--accent); fill: var(--accent-soft); }
+  .station.fail rect { stroke: var(--bad); fill: var(--bad-soft); }
+  .station.forward rect { stroke: var(--fwd); fill: var(--fwd-soft); }
+  .station.done rect { stroke: var(--accent); }
+  .track { stroke: var(--line); stroke-width: 3; fill: none; }
+  .track.branch { stroke-dasharray: 6 6; }
+  #token { transition: transform .5s ease; }
+  #token circle { fill: var(--accent); }
+  #token.fail circle { fill: var(--bad); }
+  #token.forward circle { fill: var(--fwd); }
+  #token text { fill: #fff; font-size: 11px; font-weight: 700; text-anchor: middle; }
+
+  .status {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--code-bg);
+    min-height: 2.6em;
+  }
+  .status.ok { background: var(--accent-soft); }
+  .status.fail { background: var(--bad-soft); }
+  .status.forward { background: var(--fwd-soft); }
+  pre.code {
+    margin: 10px 0 0;
+    padding: 12px;
+    background: var(--code-bg);
+    border-radius: 8px;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  /* Forms */
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 10px; }
+  label { display: flex; flex-direction: column; gap: 2px; font-size: 0.8rem; color: var(--muted); }
+  select, input[type="number"] {
+    font: inherit;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 8px;
+    min-width: 0;
+  }
+  input[type="number"] { width: 120px; }
+  button {
+    font: inherit;
+    border: 1px solid var(--line);
+    background: var(--station);
+    color: var(--ink);
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .toggles { display: grid; gap: 8px; }
+  .toggle { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--ink); flex-direction: row; }
+  .hint { color: var(--muted); font-size: 0.8rem; margin: 2px 0 0; }
+
+  /* Ledger */
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tag { font-size: 0.7rem; padding: 1px 6px; border-radius: 999px; background: var(--bad-soft); color: var(--bad); margin-left: 4px; }
+  .supply { margin-top: 8px; color: var(--muted); font-size: 0.85rem; }
+  .frozen { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--fwd-soft); font-size: 0.85rem; }
+
+  /* Log */
+  #log { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; font-size: 0.85rem; }
+  #log li { padding: 5px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  #log li .k { font-weight: 600; }
+  #log li.fail .k { color: var(--bad); }
+  #log li.forward .k { color: var(--fwd); }
+  #log li.admin .k { color: var(--warn); }
+  #log li.ok .k { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>USDT Pipeline Simulator</h1>
+    <p>A step-by-step model of <code>TetherToken.transfer</code>, based on the verified source of
+      <a href="https://etherscan.io/address/0xdAC17F958D2ee523a2206206994597C13D831ec7#code" target="_blank" rel="noopener">0xdAC1…1ec7</a>.
+      Everything runs in this page; nothing touches the chain.</p>
+  </header>
+
+  <section class="panel pipeline" style="margin-top:16px">
+    <h2>Transfer pipeline</h2>
+    <svg viewBox="0 0 1000 300" role="img" aria-label="Five-stage transfer pipeline with revert and upgrade-forward branches">
+      <path class="track" d="M100 150 H900"/>
+      <path class="track branch" d="M300 110 V60"/>
+      <path class="track branch" d="M300 190 V240 M500 190 V240 M700 190 V240"/>
+
+      <g class="station" id="st-fwd">
+        <rect x="200" y="10" width="200" height="50" rx="8"/>
+        <text x="300" y="32">Upgraded contract</text>
+        <text class="sub" x="300" y="50">transferByLegacy(…)</text>
+      </g>
+      <g class="station" id="st-revert">
+        <rect x="200" y="240" width="600" height="50" rx="8"/>
+        <text x="500" y="262">Revert</text>
+        <text class="sub" x="500" y="280">all state changes rolled back</text>
+      </g>
+
+      <g class="station" id="st-1"><rect x="25" y="110" width="150" height="80" rx="8"/>
+        <text x="100" y="145">1. Input Dock</text><text class="sub" x="100" y="165">transfer(_to, _value)</text></g>
+      <g class="station" id="st-2"><rect x="225" y="110" width="150" height="80" rx="8"/>
+        <text x="300" y="145">2. Checkpoint</text><text class="sub" x="300" y="165">pause · blacklist</text></g>
+      <g class="station" id="st-3"><rect x="425" y="110" width="150" height="80" rx="8"/>
+        <text x="500" y="145">3. Toll Booth</text><text class="sub" x="500" y="165">fee calculation</text></g>
+      <g class="station" id="st-4"><rect x="625" y="110" width="150" height="80" rx="8"/>
+        <text x="700" y="145">4. Master Ledger</text><text class="sub" x="700" y="165">balances[ ]</text></g>
+      <g class="station" id="st-5"><rect x="825" y="110" width="150" height="80" rx="8"/>
+        <text x="900" y="145">5. Delivery Dock</text><text class="sub" x="900" y="165">emit Transfer</text></g>
+
+      <g id="token" style="transform: translate(100px, 95px)">
+        <circle r="13"/><text y="4">₮</text>
+      </g>
+    </svg>
+    <div class="status" id="status">Pick a sender, recipient and amount, then press Step or Run.</div>
+    <pre class="code" id="code">// The Solidity for the current stage appears here.</pre>
+  </section>
+
+  <div class="grid top">
+    <section class="panel">
+      <h2>Send a transfer</h2>
+      <div class="row">
+        <label>msg.sender <select id="from"></select></label>
+        <label>_to <select id="to"></select></label>
+        <label>_value (USDT) <input type="number" id="amount" min="0" step="0.000001" value="250"></label>
+      </div>
+      <div class="row">
+        <button id="step" class="primary">Step</button>
+        <button id="run">Run</button>
+        <button id="reset">Reset pipeline</button>
+      </div>
+
+      <h2 style="margin-top:16px">Owner controls <span class="hint">(onlyOwner)</span></h2>
+      <div class="toggles">
+        <label class="toggle"><input type="checkbox" id="paused"> <span><code>pause()</code> / <code>unpause()</code>: halt transfers</span></label>
+        <label class="toggle"><input type="checkbox" id="deprecated"> <span><code>deprecate(upgradedAddress)</code>: forward calls to a new contract</span></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label>basisPointsRate (0–19) <input type="number" id="bps" min="0" max="19" value="0"></label>
+        <label>maximumFee, whole USDT (0–49) <input type="number" id="maxfee" min="0" max="49" value="0"></label>
+        <button id="setparams">setParams</button>
+      </div>
+      <div class="row">
+        <label>Amount (USDT) <input type="number" id="adminAmount" min="0" value="1000"></label>
+        <button id="issue">issue</button>
+        <button id="redeem">redeem</button>
+      </div>
+      <div class="row">
+        <label>Address <select id="target"></select></label>
+        <button id="blacklist">addBlackList</button>
+        <button id="unblacklist">removeBlackList</button>
+        <button id="destroy">destroyBlackFunds</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Ledger (<code>balances</code>)</h2>
+      <table>
+        <thead><tr><th>Address</th><th class="num">Balance (USDT)</th></tr></thead>
+        <tbody id="ledger"></tbody>
+      </table>
+      <div class="supply" id="supply"></div>
+      <div class="frozen" id="frozen" hidden>Deprecated: <code>balanceOf</code> and <code>totalSupply</code> now read from the upgraded contract, which this model doesn't simulate. The legacy figures above are frozen as they were.</div>
+    </section>
+  </div>
+
+  <div class="grid bottom">
+    <section class="panel">
+      <h2>Event log</h2>
+      <ul id="log"></ul>
+    </section>
+    <section class="panel">
+      <h2>What the real contract does that people get wrong</h2>
+      <ul style="margin:0; padding-left:18px">
+        <li>Only the <strong>sender</strong> is blacklist-checked; blacklisted addresses can still receive.</li>
+        <li>There's no balance <code>require</code>; <code>SafeMath.sub</code> throws on underflow.</li>
+        <li><code>transfer</code> returns <strong>nothing</strong>, not <code>bool</code>.</li>
+        <li><code>deprecate</code> forwards calls; it doesn't block them. <code>pause</code> is the emergency stop.</li>
+        <li>Ownership transfer is single-step; there is no <code>claimOwnership</code>.</li>
+        <li>Fees, when on, are credited to the owner, capped by hardcoded ceilings in <code>setParams</code>.</li>
+      </ul>
+    </section>
+  </div>
+</main>
+
+<script>
+  const UNIT = 1000000n; // 6 decimals
+  const ADDRS = ["Owner", "Alice", "Bob", "Carol"];
+
+  const state = {
+    balances: { Owner: 1000000n * UNIT, Alice: 5000n * UNIT, Bob: 1200n * UNIT, Carol: 0n },
+    totalSupply: 1006200n * UNIT,
+    blacklisted: new Set(),
+    paused: false,
+    deprecated: false,
+    bps: 0n,
+    maxFee: 0n,
+  };
+
+  const $ = id => document.getElementById(id);
+
+  function fmt(base) {
+    const neg = base < 0n;
+    if (neg) base = -base;
+    const whole = (base / UNIT).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    let frac = (base % UNIT).toString().padStart(6, "0").replace(/0+$/, "");
+    return (neg ? "-" : "") + whole + (frac ? "." + frac : "");
+  }
+
+  function parseUsdt(str) {
+    const s = String(str).trim();
+    if (!/^\d+(\.\d{0,6})?$/.test(s)) return null;
+    const [w, f = ""] = s.split(".");
+    return BigInt(w) * UNIT + BigInt(f.padEnd(6, "0"));
+  }
+
+  function log(kind, title, detail) {
+    const li = document.createElement("li");
+    li.className = kind;
+    li.innerHTML = `<span class="k"></span> <span class="d"></span>`;
+    li.querySelector(".k").textContent = title;
+    li.querySelector(".d").textContent = detail;
+    $("log").prepend(li);
+  }
+
+  function renderLedger() {
+    const tbody = $("ledger");
+    tbody.innerHTML = "";
+    for (const a of ADDRS) {
+      const tr = document.createElement("tr");
+      const name = document.createElement("td");
+      name.textContent = a;
+      if (state.blacklisted.has(a)) {
+        const t = document.createElement("span");
+        t.className = "tag";
+        t.textContent = "blacklisted";
+        name.append(t);
+      }
+      const bal = document.createElement("td");
+      bal.className = "num";
+      bal.textContent = fmt(state.balances[a]);
+      tr.append(name, bal);
+      tbody.append(tr);
+    }
+    $("supply").textContent = `_totalSupply: ${fmt(state.totalSupply)} USDT · fee: ${state.bps} bps, max ${fmt(state.maxFee)} USDT`;
+    $("frozen").hidden = !state.deprecated;
+  }
+
+  function fillSelects() {
+    for (const [id, def] of [["from", "Alice"], ["to", "Bob"], ["target", "Alice"]]) {
+      const sel = $(id);
+      for (const a of ADDRS) sel.add(new Option(a, a, false, a === def));
+    }
+  }
+
+  // ---- Pipeline ----
+  const POS = {
+    1: [100, 95], 2: [300, 95], 3: [500, 95], 4: [700, 95], 5: [900, 95],
+    fwd: [300, 35], revert2: [300, 265], revert3: [500, 265], revert4: [700, 265],
+  };
+
+  let plan = null;
+  let cursor = 0;
+  let timer = null;
+
+  // Build the full list of steps for one transfer, mirroring TetherToken.transfer
+  // and BasicToken.transfer. State is only mutated when the final step is shown.
+  function buildPlan(from, to, value) {
+    const steps = [];
+    steps.push({
+      stage: 1, pos: 1, kind: "active",
+      msg: `${from} calls transfer(${to}, ${fmt(value)} USDT). That's ${value.toString()} base units.`,
+      code: `function transfer(address _to, uint _value) public whenNotPaused {\n    // msg.sender = ${from}, _to = ${to}, _value = ${value}`,
+    });
+
+    if (state.paused) {
+      steps.push({
+        stage: 2, pos: "revert2", kind: "fail", end: true,
+        msg: "Reverted: the contract is paused (whenNotPaused).",
+        code: `modifier whenNotPaused() {\n    require(!paused);   // paused == true → throw\n    _;\n}`,
+        logTitle: "Revert", logDetail: `${from} → ${to}: contract paused`,
+      });
+      return steps;
+    }
+    if (state.blacklisted.has(from)) {
+      steps.push({
+        stage: 2, pos: "revert2", kind: "fail", end: true,
+        msg: `Reverted: ${from} is blacklisted. (Only the sender is checked.)`,
+        code: `require(!isBlackListed[msg.sender]);   // ${from} is blacklisted → throw`,
+        logTitle: "Revert", logDetail: `${from} → ${to}: sender blacklisted`,
+      });
+      return steps;
+    }
+    if (state.deprecated) {
+      steps.push({
+        stage: 2, pos: "fwd", kind: "forward", end: true, forwarded: true,
+        msg: "Deprecated: the call is forwarded to the upgraded contract. The legacy ledger isn't touched.",
+        code: `if (deprecated) {\n    return UpgradedStandardToken(upgradedAddress)\n        .transferByLegacy(msg.sender, _to, _value);\n}`,
+        logTitle: "Forwarded", logDetail: `transferByLegacy(${from}, ${to}, ${fmt(value)})`,
+      });
+      return steps;
+    }
+    const toNote = state.blacklisted.has(to) ? ` ${to} is blacklisted, but recipients aren't checked.` : "";
+    steps.push({
+      stage: 2, pos: 2, kind: "active",
+      msg: `Guards pass: not paused, ${from} isn't blacklisted, not deprecated.${toNote}`,
+      code: `require(!isBlackListed[msg.sender]);   // ok\nif (deprecated) { … }                  // false → continue\nreturn super.transfer(_to, _value);`,
+    });
+
+    let fee = value * state.bps / 10000n;
+    const capped = fee > state.maxFee;
+    if (capped) fee = state.maxFee;
+    const send = value - fee;
+    steps.push({
+      stage: 3, pos: 3, kind: "active",
+      msg: fee === 0n
+        ? "Fee is 0 (basisPointsRate and maximumFee are both 0, as on mainnet)."
+        : `Fee: ${fmt(fee)} USDT${capped ? " (capped at maximumFee)" : ""}. ${to} will receive ${fmt(send)} USDT.`,
+      code: `uint fee = (_value.mul(basisPointsRate)).div(10000);   // ${value} * ${state.bps} / 10000\nif (fee > maximumFee) {\n    fee = maximumFee;                                     // ${state.maxFee}\n}\nuint sendAmount = _value.sub(fee);                        // ${send}`,
+    });
+
+    if (state.balances[from] < value) {
+      steps.push({
+        stage: 4, pos: "revert4", kind: "fail", end: true,
+        msg: `Reverted: ${from} has ${fmt(state.balances[from])} USDT, less than ${fmt(value)}. SafeMath.sub throws.`,
+        code: `balances[msg.sender] = balances[msg.sender].sub(_value);\n// sub(a, b) { assert(b <= a); … }  → ${state.balances[from]} < ${value} → throw`,
+        logTitle: "Revert", logDetail: `${from} → ${to}: insufficient balance`,
+      });
+      return steps;
+    }
+    steps.push({
+      stage: 4, pos: 4, kind: "active",
+      msg: `Ledger updated: ${from} −${fmt(value)}, ${to} +${fmt(send)}${fee > 0n ? `, Owner +${fmt(fee)} (fee)` : ""}.`,
+      code: `balances[msg.sender] = balances[msg.sender].sub(_value);\nbalances[_to] = balances[_to].add(sendAmount);\nif (fee > 0) {\n    balances[owner] = balances[owner].add(fee);\n    Transfer(msg.sender, owner, fee);\n}`,
+    });
+    steps.push({
+      stage: 5, pos: 5, kind: "active", end: true, commit: { from, to, value, fee, send },
+      msg: "Transfer event emitted. The function returns nothing (no bool).",
+      code: `Transfer(msg.sender, _to, sendAmount);\n}   // no return value`,
+    });
+    return steps;
+  }
+
+  function clearStations() {
+    document.querySelectorAll(".station").forEach(s => s.classList.remove("active", "fail", "forward", "done"));
+  }
+
+  function showStep(step) {
+    clearStations();
+    for (let i = 1; i < step.stage; i++) $("st-" + i).classList.add("done");
+    const st = $("st-" + step.stage);
+    if (step.kind === "fail") {
+      st.classList.add("fail");
+      $("st-revert").classList.add("fail");
+    } else if (step.kind === "forward") {
+      st.classList.add("forward");
+      $("st-fwd").classList.add("forward");
+    } else {
+      st.classList.add("active");
+    }
+    const [x, y] = POS[step.pos];
+    const tok = $("token");
+    tok.style.transform = `translate(${x}px, ${y}px)`;
+    tok.setAttribute("class", step.kind === "active" ? "" : step.kind);
+    const status = $("status");
+    status.className = "status " + (step.kind === "fail" ? "fail" : step.kind === "forward" ? "forward" : step.end ? "ok" : "");
+    status.textContent = step.msg;
+    $("code").textContent = step.code;
+  }
+
+  function finish(step) {
+    if (step.commit) {
+      const { from, to, value, fee, send } = step.commit;
+      state.balances[from] -= value;
+      state.balances[to] += send;
+      if (fee > 0n) {
+        state.balances.Owner += fee;
+        log("ok", "Transfer", `${from} → Owner: ${fmt(fee)} (fee)`);
+      }
+      log("ok", "Transfer", `${from} → ${to}: ${fmt(send)} USDT`);
+      renderLedger();
+    } else {
+      log(step.kind, step.logTitle, step.logDetail);
+    }
+    plan = null;
+    setBusy(false);
+  }
+
+  function setBusy(busy) {
+    for (const id of ["from", "to", "amount"]) $(id).disabled = busy;
+    $("step").textContent = busy ? "Next step" : "Step";
+  }
+
+  function startPlan() {
+    const from = $("from").value;
+    const to = $("to").value;
+    const value = parseUsdt($("amount").value);
+    if (value === null) {
+      $("status").className = "status fail";
+      $("status").textContent = "Enter an amount with at most 6 decimal places.";
+      return false;
+    }
+    plan = buildPlan(from, to, value);
+    cursor = 0;
+    setBusy(true);
+    return true;
+  }
+
+  function step() {
+    if (!plan && !startPlan()) return;
+    const s = plan[cursor++];
+    showStep(s);
+    if (s.end) finish(s);
+  }
+
+  function run() {
+    if (timer) return;
+    if (!plan && !startPlan()) return;
+    $("run").disabled = true;
+    const tick = () => {
+      step();
+      if (plan) timer = setTimeout(tick, 800);
+      else { timer = null; $("run").disabled = false; }
+    };
+    tick();
+  }
+
+  function resetPipeline() {
+    clearTimeout(timer);
+    timer = null;
+    plan = null;
+    $("run").disabled = false;
+    setBusy(false);
+    clearStations();
+    $("token").style.transform = `translate(${POS[1][0]}px, ${POS[1][1]}px)`;
+    $("token").setAttribute("class", "");
+    $("status").className = "status";
+    $("status").textContent = "Pick a sender, recipient and amount, then press Step or Run.";
+    $("code").textContent = "// The Solidity for the current stage appears here.";
+  }
+
+  // ---- Owner controls ----
+  function adminFail(what, why) {
+    log("fail", "Revert", `${what}: ${why}`);
+  }
+
+  $("paused").addEventListener("change", e => {
+    state.paused = e.target.checked;
+    log("admin", state.paused ? "Pause" : "Unpause", state.paused ? "transfer and transferFrom now revert" : "transfers resume");
+  });
+
+  $("deprecated").addEventListener("change", e => {
+    if (!e.target.checked) {
+      // The real contract has no way back once deprecated.
+      e.target.checked = true;
+      log("fail", "No undo", "deprecate() is one-way; reload the page to start over");
+      return;
+    }
+    state.deprecated = true;
+    log("admin", "Deprecate", "ERC-20 calls now forward to upgradedAddress");
+    renderLedger();
+  });
+
+  $("setparams").addEventListener("click", () => {
+    const bps = Number($("bps").value);
+    const max = Number($("maxfee").value);
+    if (!Number.isInteger(bps) || bps < 0 || bps >= 20) return adminFail("setParams", "require(newBasisPoints < 20)");
+    if (!Number.isInteger(max) || max < 0 || max >= 50) return adminFail("setParams", "require(newMaxFee < 50)");
+    state.bps = BigInt(bps);
+    state.maxFee = BigInt(max) * UNIT;
+    log("admin", "Params", `basisPointsRate = ${bps}, maximumFee = ${max} USDT`);
+    renderLedger();
+  });
+
+  $("issue").addEventListener("click", () => {
+    const amt = parseUsdt($("adminAmount").value);
+    if (amt === null || amt === 0n) return adminFail("issue", "require(_totalSupply + amount > _totalSupply)");
+    state.balances.Owner += amt;
+    state.totalSupply += amt;
+    log("admin", "Issue", `${fmt(amt)} USDT minted to Owner`);
+    renderLedger();
+  });
+
+  $("redeem").addEventListener("click", () => {
+    const amt = parseUsdt($("adminAmount").value);
+    if (amt === null) return adminFail("redeem", "invalid amount");
+    if (state.balances.Owner < amt) return adminFail("redeem", "require(balances[owner] >= amount)");
+    state.balances.Owner -= amt;
+    state.totalSupply -= amt;
+    log("admin", "Redeem", `${fmt(amt)} USDT burned from Owner`);
+    renderLedger();
+  });
+
+  $("blacklist").addEventListener("click", () => {
+    const a = $("target").value;
+    state.blacklisted.add(a);
+    log("admin", "AddedBlackList", a);
+    renderLedger();
+  });
+
+  $("unblacklist").addEventListener("click", () => {
+    const a = $("target").value;
+    state.blacklisted.delete(a);
+    log("admin", "RemovedBlackList", a);
+    renderLedger();
+  });
+
+  $("destroy").addEventListener("click", () => {
+    const a = $("target").value;
+    if (!state.blacklisted.has(a)) return adminFail("destroyBlackFunds", `require(isBlackListed[${a}])`);
+    const dirty = state.balances[a];
+    state.balances[a] = 0n;
+    state.totalSupply -= dirty;
+    log("admin", "DestroyedBlackFunds", `${a}: ${fmt(dirty)} USDT removed from supply`);
+    renderLedger();
+  });
+
+  $("step").addEventListener("click", step);
+  $("run").addEventListener("click", run);
+  $("reset").addEventListener("click", resetPipeline);
+
+  fillSelects();
+  renderLedger();
+  log("admin", "Deploy", "TetherToken with Owner holding the initial supply");
+</script>
+</body>
+</html>
